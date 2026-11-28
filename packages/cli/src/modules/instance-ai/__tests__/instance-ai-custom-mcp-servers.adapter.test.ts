@@ -1,4 +1,4 @@
-import type { McpServerResponse, McpServerToolResponse } from '@n8n/api-types';
+import type { McpServerListItem, McpServerResponse, McpServerToolResponse } from '@n8n/api-types';
 import type { ModuleRegistry } from '@n8n/backend-common';
 import {
 	CustomMcpServersFlagGate,
@@ -24,6 +24,12 @@ const SERVER_ID = '7b0c2a52-3c1f-4f53-9a51-0c0d8c3a0a01';
 const TOOL_ID = '7b0c2a52-3c1f-4f53-9a51-0c0d8c3a0a02';
 
 const server = mock<McpServerResponse>({ id: SERVER_ID, projectId: 'project-1' });
+const listItem = mock<McpServerListItem>({
+	id: SERVER_ID,
+	projectId: 'project-1',
+	toolCount: 2,
+	connectionCount: 1,
+});
 const tool = mock<McpServerToolResponse>({ id: TOOL_ID });
 
 describe('InstanceAiCustomMcpServersAdapterService', () => {
@@ -63,21 +69,21 @@ describe('InstanceAiCustomMcpServersAdapterService', () => {
 
 	describe('list', () => {
 		it('lists the servers of every project that the user can see, without a project', async () => {
-			servers.listForUser.mockResolvedValue([server]);
+			servers.listForUser.mockResolvedValue([listItem]);
 
-			await expect(createService().list()).resolves.toEqual([server]);
+			await expect(createService().list()).resolves.toEqual([listItem]);
 
 			expect(servers.listForUser).toHaveBeenCalledWith(user);
 			expect(access.resolveProjectId).not.toHaveBeenCalled();
 		});
 
 		it('checks the list scope in the given project', async () => {
-			servers.list.mockResolvedValue([server]);
+			servers.list.mockResolvedValue([listItem]);
 
 			await createService().list('project-2');
 
 			expect(access.resolveProjectId).toHaveBeenCalledWith(['mcpServer:list'], 'project-2');
-			expect(servers.list).toHaveBeenCalledWith('project-2');
+			expect(servers.list).toHaveBeenCalledWith('project-2', user);
 		});
 	});
 

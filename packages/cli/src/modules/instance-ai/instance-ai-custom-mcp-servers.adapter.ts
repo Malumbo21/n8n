@@ -63,7 +63,10 @@ export class InstanceAiCustomMcpServersAdapterService {
 			list: async (projectId) => {
 				const { servers } = await services();
 				if (projectId === undefined) return await servers.listForUser(user);
-				return await servers.list(await readProject(MCP_SERVER_ACTION_SCOPES.list, projectId));
+				return await servers.list(
+					await readProject(MCP_SERVER_ACTION_SCOPES.list, projectId),
+					user,
+				);
 			},
 			get: async ({ serverId, projectId }) => {
 				const { servers, tools } = await services();

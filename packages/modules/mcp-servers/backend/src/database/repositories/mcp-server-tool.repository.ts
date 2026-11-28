@@ -57,6 +57,23 @@ export class McpServerToolRepository {
 		});
 	}
 
+	/** The number of tools of each server. A server without tools is not in the map. */
+	async countByServers(
+		serverIds: string[],
+		ctx: OperationContext = {},
+	): Promise<Map<string, number>> {
+		if (serverIds.length === 0) return new Map();
+		const rows = await this.table
+			.managerFor(ctx)
+			.createQueryBuilder(McpServerTool, 'tool')
+			.select('tool.serverId', 'serverId')
+			.addSelect('COUNT(*)', 'count')
+			.where('tool.serverId IN (:...serverIds)', { serverIds })
+			.groupBy('tool.serverId')
+			.getRawMany<{ serverId: string; count: string | number }>();
+		return new Map(rows.map((row) => [row.serverId, Number(row.count)]));
+	}
+
 	async findInServer(
 		serverId: string,
 		toolId: string,

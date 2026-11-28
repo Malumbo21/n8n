@@ -1258,6 +1258,39 @@ describe('McpServerContentsTab', () => {
 		});
 	});
 
+	describe('a deep link', () => {
+		const alpha = tool({ toolName: 'alpha_tool' });
+		const beta = tool({
+			id: '0190a8d6-4a2e-7000-8000-0000000000a2',
+			targetId: 'wf-6',
+			toolName: 'beta_tool',
+			position: 1,
+		});
+
+		/** The name of the tool in the open modal after the tab opens at `path`, or `null`. */
+		async function openedAt(path: string) {
+			api.getMcpServer.mockResolvedValue(server([alpha, beta]));
+			const { findByTestId } = await render({ path });
+			await findByTestId('mcp-server-capabilities-panel');
+
+			const name = screen.queryByTestId('mcp-tool-dialog-name-input');
+			return name ? (name as HTMLInputElement).value : null;
+		}
+
+		it.each([
+			['?expand=beta_tool', 'beta_tool'],
+			['?tool=alpha_tool', 'alpha_tool'],
+			['?skill=beta_tool', 'beta_tool'],
+			['?tool=alpha_tool&expand=beta_tool', 'alpha_tool'],
+			['?skill=alpha_tool&expand=beta_tool', 'alpha_tool'],
+			['?tool=&expand=beta_tool', 'beta_tool'],
+			['?tool=unknown_tool', null],
+			['', null],
+		])('%j opens %j', async (query, expected) => {
+			expect(await openedAt(`/${query}`)).toBe(expected);
+		});
+	});
+
 	it('shows the "+ Add workflow" action in Capabilities for an empty server', async () => {
 		api.getMcpServer.mockResolvedValue(server([]));
 		const { findByTestId } = await render();

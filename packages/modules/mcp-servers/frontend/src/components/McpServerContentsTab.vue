@@ -108,10 +108,16 @@ const orderedCapabilityRows = computed<CapabilityRowKind[]>(() =>
 const selectedTool = computed(
 	() => workflowTools.value.find(({ id }) => id === selectedToolId.value) ?? null,
 );
-/** `?expand=<tool name>` opens that tool in the modal, for old deep links. */
-const expandName = computed(() =>
-	typeof route?.query.expand === 'string' ? route.query.expand : '',
-);
+/**
+ * `?tool=<name>`, `?skill=<name>`, or `?expand=<name>` opens that item in its modal, for a deep
+ * link. The first non-empty parameter wins. `?expand` keeps old links working.
+ */
+const expandName = computed(() => {
+	for (const param of [route?.query.tool, route?.query.skill, route?.query.expand]) {
+		if (typeof param === 'string' && param) return param;
+	}
+	return '';
+});
 
 watch(
 	[workflowTools, expandName],

@@ -10273,12 +10273,12 @@ describe('createContext: customMcpServerService', () => {
 			mockedUserHasScopes.mockImplementation(
 				async (_user, _scopes, _global, options) => options?.projectId === 'project-1',
 			);
-			const { service } = createService();
+			const { service, mockUser } = createService();
 
 			await expect(service.list('project-2')).rejects.toThrow(PERMISSION_ERROR);
 			await expect(service.list('project-1')).resolves.toEqual([]);
 			expect(servers.list).toHaveBeenCalledTimes(1);
-			expect(servers.list).toHaveBeenCalledWith('project-1');
+			expect(servers.list).toHaveBeenCalledWith('project-1', mockUser);
 		});
 
 		it('creates a server in the personal project when no project is given', async () => {

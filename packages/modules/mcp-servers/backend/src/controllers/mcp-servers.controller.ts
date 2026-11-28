@@ -38,7 +38,7 @@ export class McpServersController {
 	@ProjectScope(MCP_SERVER_ACTION_SCOPES.list)
 	async list(req: ServerRequest) {
 		await this.flagGate.assertEnabled();
-		return await this.service.list(req.params.projectId);
+		return await this.service.list(req.params.projectId, req.user);
 	}
 
 	@Post('/')

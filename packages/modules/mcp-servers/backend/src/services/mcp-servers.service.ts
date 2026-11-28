@@ -1,6 +1,7 @@
 import {
 	mcpServerSchema,
 	type CreateMcpServerDto,
+	type McpServerListItem,
 	type McpServerResponse,
 	type McpServerSlugAvailability,
 	type UpdateMcpServerDto,
@@ -11,6 +12,8 @@ import { Service } from '@n8n/di';
 import { BadRequestError, NotFoundError, UnexpectedError } from '@n8n/errors';
 
 import type { McpServer } from '../database/entities/mcp-server.entity';
+import { McpServerConnectionRepository } from '../database/repositories/mcp-server-connection.repository';
+import { McpServerToolRepository } from '../database/repositories/mcp-server-tool.repository';
 import {
 	McpServerRepository,
 	type McpServerProject,
@@ -41,6 +44,8 @@ function toResponse(server: McpServer, project: McpServerProject): McpServerResp
 export class McpServersService {
 	constructor(
 		private readonly servers: McpServerRepository,
+		private readonly tools: McpServerToolRepository,
+		private readonly connections: McpServerConnectionRepository,
 		private readonly projectScopeService: ProjectScopeService,
 		private readonly events: EventService,
 		private readonly resources: McpServerProtectedResource,
@@ -69,17 +74,26 @@ export class McpServersService {
 		return await this.withProject(server);
 	}
 
-	async list(projectId: string): Promise<McpServerResponse[]> {
+	async list(projectId: string, user: User): Promise<McpServerListItem[]> {
 		if (!(await this.servers.projectExists(projectId))) {
 			throw new NotFoundError('Project not found');
 		}
-		return await this.toResponses(await this.servers.listInProjects([projectId]));
+		const canRead = await this.projectScopeService.hasScopes(user, projectId, ['mcpServer:read']);
+		return await this.toListItems(await this.servers.listInProjects([projectId]), () => canRead);
 	}
 
 	/** The servers of each project in which the user has the scope `mcpServer:list`. */
-	async listForUser(user: User): Promise<McpServerResponse[]> {
-		const projectIds = await this.projectScopeService.getProjectIds(user, ['mcpServer:list']);
-		return await this.toResponses(await this.servers.listInProjects(projectIds));
+	async listForUser(user: User): Promise<McpServerListItem[]> {
+		const [projectIds, readableProjectIds] = await Promise.all([
+			this.projectScopeService.getProjectIds(user, ['mcpServer:list']),
+			this.projectScopeService.getProjectIds(user, ['mcpServer:read']),
+		]);
+		// `null` means a global scope: the user can read the servers of every project.
+		const readable = readableProjectIds === null ? null : new Set(readableProjectIds);
+		return await this.toListItems(
+			await this.servers.listInProjects(projectIds),
+			(projectId) => readable === null || readable.has(projectId),
+		);
 	}
 
 	async get(projectId: string, serverId: string): Promise<McpServerResponse> {
@@ -144,5 +158,33 @@ export class McpServersService {
 	private async toResponses(servers: McpServer[]): Promise<McpServerResponse[]> {
 		const rows = await this.servers.withProjects(servers);
 		return rows.map(({ server, project }) => toResponse(server, project));
+	}
+
+	/**
+	 * The counts need `mcpServer:read`, as on the detail route. A custom role can grant
+	 * `mcpServer:list` without it: such a user gets `null` for both counts. The list sends counts
+	 * only. The card loads the items from the detail route when the person opens the pill.
+	 */
+	private async toListItems(
+		servers: McpServer[],
+		canRead: (projectId: string) => boolean,
+	): Promise<McpServerListItem[]> {
+		if (servers.length === 0) return [];
+		const readableIds = servers
+			.filter((server) => canRead(server.projectId))
+			.map((server) => server.id);
+		const [rows, toolCounts, connectionCounts] = await Promise.all([
+			this.servers.withProjects(servers),
+			this.tools.countByServers(readableIds),
+			this.connections.countActiveByServers(readableIds),
+		]);
+		return rows.map(({ server, project }) => {
+			const readable = canRead(server.projectId);
+			return {
+				...toResponse(server, project),
+				toolCount: readable ? (toolCounts.get(server.id) ?? 0) : null,
+				connectionCount: readable ? (connectionCounts.get(server.id) ?? 0) : null,
+			};
+		});
 	}
 }

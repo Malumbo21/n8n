@@ -1,5 +1,5 @@
 import { CUSTOM_MCP_SERVERS_FLAG, CUSTOM_MCP_SERVERS_FLAG_VARIANT } from '@n8n/api-types';
-import { clearMcpServerTables } from '@n8n/backend-module-mcp-servers/testing';
+import { clearMcpServerTables, createMcpServerTool } from '@n8n/backend-module-mcp-servers/testing';
 import { EventService, PostHogClient } from '@n8n/backend-services';
 import { createTeamProject, getPersonalProject, linkUserToProject } from '@n8n/backend-test-utils';
 import type { Project, User } from '@n8n/db';
@@ -7,6 +7,7 @@ import { Container } from '@n8n/di';
 import type { AssignableProjectRole } from '@n8n/permissions';
 import type { MockInstance } from 'vitest';
 
+import { createCustomRoleWithScopeSlugs } from '../shared/db/roles';
 import { createAdmin, createMember, createOwner } from '../shared/db/users';
 import type { SuperAgentTest } from '../shared/types';
 import * as utils from '../shared/utils/';
@@ -200,6 +201,37 @@ describe('GET /projects/:projectId/mcp-servers', () => {
 		]);
 	});
 
+	it('returns each server with its tool count and zero connectionCount when unshared', async () => {
+		const first = await createServer({ name: 'Sales tools', slug: 'sales-tools' });
+		const empty = await createServer({ name: 'Empty server', slug: 'empty-server' });
+		await createMcpServerTool({
+			serverId: first.id,
+			kind: 'workflow',
+			targetId: 'wf-1',
+			toolName: 'get_numbers',
+			position: 1,
+		});
+		await createMcpServerTool({
+			serverId: first.id,
+			kind: 'node',
+			targetId: null,
+			toolName: 'search_slack',
+			position: 0,
+		});
+
+		const response = await ownerAgent.get(serversPath()).expect(200);
+		const byId = new Map<string, { toolCount: number; connectionCount: number }>(
+			response.body.data.map((row: { id: string; toolCount: number; connectionCount: number }) => [
+				row.id,
+				row,
+			]),
+		);
+
+		expect(byId.get(first.id)).toMatchObject({ toolCount: 2, connectionCount: 0 });
+		expect(byId.get(first.id)).not.toHaveProperty('tools');
+		expect(byId.get(empty.id)).toMatchObject({ toolCount: 0, connectionCount: 0 });
+	});
+
 	it.each([
 		['project:admin', 200],
 		['project:editor', 200],
@@ -243,6 +275,42 @@ describe('GET /mcp-servers', () => {
 		expect(await ids(testServer.authAgentFor(admin))).toEqual(
 			[own.id, hidden.id, mine.body.data.id].sort(),
 		);
+	});
+});
+
+describe('a custom project role with List and without Read', () => {
+	it('lists the servers without their tool count and connection count', async () => {
+		const role = await createCustomRoleWithScopeSlugs(['mcpServer:list']);
+		const listOnly = await createMember();
+		await linkUserToProject(listOnly, teamProject, role.slug as AssignableProjectRole);
+		const listOnlyAgent = testServer.authAgentFor(listOnly);
+		const server = await createServer({ name: 'Sales tools', slug: 'sales-tools' });
+		await createMcpServerTool({
+			serverId: server.id,
+			kind: 'workflow',
+			targetId: 'wf-1',
+			toolName: 'get_numbers',
+		});
+
+		const projectList = await listOnlyAgent.get(serversPath()).expect(200);
+		const overviewList = await listOnlyAgent.get('/mcp-servers').expect(200);
+
+		for (const response of [projectList, overviewList]) {
+			expect(response.body.data).toEqual([
+				expect.objectContaining({ id: server.id, toolCount: null, connectionCount: null }),
+			]);
+		}
+		await listOnlyAgent.get(`${serversPath()}/${server.id}`).expect(403);
+
+		// A built-in role with Read still gets both fields.
+		const viewerList = await agentFor('project:viewer').get(serversPath()).expect(200);
+		expect(viewerList.body.data).toEqual([
+			expect.objectContaining({
+				id: server.id,
+				toolCount: 1,
+				connectionCount: 0,
+			}),
+		]);
 	});
 });
 
